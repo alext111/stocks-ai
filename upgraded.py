@@ -1,5 +1,4 @@
 import math
-# import pandas_datareader as web
 import numpy as np
 import pandas
 from sklearn.preprocessing import MinMaxScaler
@@ -7,8 +6,7 @@ import keras
 import matplotlib.pyplot as plt
 import requests
 from datetime import datetime
-import \
-    tensorflow as tf  # https://stackoverflow.com/questions/58986126/replacing-placeholder-for-tensorflow-v2 shows how to migrate or revert
+import tensorflow as tf
 
 '''
 from keras.models import Sequential
@@ -191,11 +189,11 @@ lstm_cells = [
                             )
     for li in range(n_layers)]
 
-drop_lstm_cells = [tf.contrib.rnn.DropoutWrapper(
+drop_lstm_cells = [tf.nn.RNNCellDropoutWrapper(
     lstm, input_keep_prob=1.0, output_keep_prob=1.0 - dropout, state_keep_prob=1.0 - dropout
 ) for lstm in lstm_cells]
-drop_multi_cell = tf.compat.v1.nn.rnn_cell.MultiRNNCell(drop_lstm_cells)
-multi_cell = tf.compat.v1.nn.rnn_cell.MultiRNNCell(lstm_cells)
+drop_multi_cell = tf.keras.layers.StackedRNNCells(drop_lstm_cells)  #tf.nn.rnn_cell.MultiRNNCell>replaced in tf 2.0> tf.keras.layers.StackedRNNCells but are they the same?
+multi_cell = tf.keras.layers.StackedRNNCells(lstm_cells)
 
 w = tf.compat.v1.get_variable('w', shape=[num_nodes[-1], 1], initializer=tf.compat.v1.keras.initializers.VarianceScaling(scale=1.0, mode="fan_avg", distribution="uniform"))
 b = tf.compat.v1.get_variable('b', initializer=tf.random.uniform([1], -0.1, 0.1))
@@ -206,16 +204,21 @@ initial_state = []
 for li in range(n_layers):
     c.append(tf.Variable(tf.zeros([batch_size, num_nodes[li]]), trainable=False))
     h.append(tf.Variable(tf.zeros([batch_size, num_nodes[li]]), trainable=False))
-    initial_state.append(tf.nn.rnn_cell.LSTMStateTuple(c[li], h[li]))
+    initial_state.append(tf.compat.v1.nn.rnn_cell.LSTMStateTuple(c[li], h[li])) #answer found on google
+                                                                #tf.nn.rnn_cell.LSTMStateTuple>changed in 2.0> tf.keras.layers.LSTMCell
+                                                                #tensorflow.python.keras.layers.legacy_rnn.rnn_cell_impl.LSTMCell >not optimized for gpu preformance> tf.contrib.cudnn_rnn.CudnnLSTM
+                                                                #layer.add_variable> removed, use> layer.add_weight
 
-# Do several tensor transofmations, because the function dynamic_rnn requires the output to be of
+
+# Do several tensor transformations, because the function dynamic_rnn requires the output to be of
 # a specific format. Read more at: https://www.tensorflow.org/api_docs/python/tf/nn/dynamic_rnn
 all_inputs = tf.concat([tf.expand_dims(t, 0) for t in train_inputs], axis=0)
-
+print(initial_state)
+print(all_inputs)
 # all_outputs is [seq_length, batch_size, num_nodes]
-all_lstm_outputs, state = tf.compat.v1.nn.dynamic_rnn(
-    drop_multi_cell, all_inputs, initial_state=tuple(initial_state),
-    time_major=True, dtype=tf.float32)
+all_lstm_outputs, state = tf.keras.layers.RNN( #tf.compat.v1.nn.dynamic_rnn>updated to > tf.keras.layers.RNN
+    cell=drop_multi_cell, inputs=all_inputs, initial_state=tuple(initial_state),
+    time_major=True, dtype=tf.float32, **kwargs) #**kwargs)
 
 all_lstm_outputs = tf.reshape(all_lstm_outputs, [batch_size * num_unrollings, num_nodes[-1]])
 
